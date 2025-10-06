@@ -5,12 +5,6 @@
 #include <stdio.h>
 #include "string.h"
 
-/* 
-   Observação importante:
-   - Os warnings vinham de comparações entre 'int' (índices) e 'size_t' (retorno de sizeof).
-   - Para resolver, aplicamos (int) em todos os 'sizeof(BigInt)' usados em comparações ou limites de laços.
-*/
-
 /* res = val (extensão de sinal para 128 bits) */
 void big_val (BigInt res, long val){
     /* zera os 16 bytes do resultado (evita lixo nos bytes altos) */
