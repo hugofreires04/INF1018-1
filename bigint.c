@@ -37,10 +37,11 @@ void big_val (BigInt res, long val){
 
 /* res = -a  (complemento de 2: ~a + 1) */
 void big_comp2(BigInt res, BigInt a){
-    /* zera res (não estritamente necessário; aqui mantém padrão) */
+    /*
     for (int i = 0; i < (int)sizeof(BigInt); i++) {
         res[i] = 0;
     }
+    */
 
     unsigned int carry = 1; // inicia em 1 por causa do "+1" do complemento de 2
 
