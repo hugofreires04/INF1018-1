@@ -1,5 +1,5 @@
   /* Hugo Freires 2321223 3WA */
-  /* Saulo Canto Matricula 3WB */
+  /* Saulo Canto 2320940 3WB */
 
 #include "bigint.h"
 #include <stdio.h>
@@ -37,11 +37,6 @@ void big_val (BigInt res, long val){
 
 /* res = -a  (complemento de 2: ~a + 1) */
 void big_comp2(BigInt res, BigInt a){
-    /*
-    for (int i = 0; i < (int)sizeof(BigInt); i++) {
-        res[i] = 0;
-    }
-    */
 
     unsigned int carry = 1; // inicia em 1 por causa do "+1" do complemento de 2
 
@@ -55,9 +50,6 @@ void big_comp2(BigInt res, BigInt a){
 
 /* res = a + b (módulo 2^128) */
 void big_sum (BigInt res, BigInt a, BigInt b) {
-    for (int i = 0; i < (int)sizeof(BigInt); i++) {
-        res[i] = 0;
-    }
 
     unsigned int carry = 0;
 
@@ -71,9 +63,6 @@ void big_sum (BigInt res, BigInt a, BigInt b) {
 
 /* res = a - b (implementação por borrow) */
 void big_sub (BigInt res, BigInt a, BigInt b) {
-    for (int i = 0; i < (int)sizeof(BigInt); i++) {
-        res[i] = 0;
-    }
 
     unsigned int prox = 0; // "borrow" (empresta 1) do próximo byte
 
@@ -92,125 +81,132 @@ void big_sub (BigInt res, BigInt a, BigInt b) {
 }
 
 /* res = a << n (deslocamento lógico à esquerda) */
-void big_shl (BigInt res, BigInt a, int n){
-    for (int i = 0; i < (int)sizeof(BigInt); i++) {
-        res[i] = 0;
-    }
-
-    // casos triviais
-    if (n <= 0) {
-        for (int i = 0; i < (int)sizeof(BigInt); i++){
-            res[i] = a[i]; // copia
-        }
+/* Little-endian: a[0] = LSB, a[15] = MSB. In-place SAFE via buffer temporário. */
+void big_shl (BigInt res, BigInt a, int n) {
+    if (n <= 0) {                    /* n=0 (ou negativo): copia */
+        if (res != a) memcpy(res, a, sizeof(BigInt));
         return;
     }
-    if (n >= 8 * (int)sizeof(BigInt)) { // <-- cast para (int)
-        return;            // deslocou >=128 bits → tudo 0
+    if (n >= 8 * (int)sizeof(BigInt)) {   /* n >= 128: tudo 0 */
+        for (int i = 0; i < (int)sizeof(BigInt); i++) res[i] = 0;
+        return;
     }
 
-    int byte_shift = n / 8; // quantos bytes inteiros deslocar
-    int bit_shift  = n % 8; // quantos bits dentro do byte
+    int byte_shift = n / 8;   /* deslocamento inteiro em bytes */
+    int bit_shift  = n % 8;   /* deslocamento “miúdo” em bits  */
 
-    // 1) desloca por bytes: copia a[src] para res[i], com src = i - byte_shift
+    BigInt tmp;
+
+    /* 1) desloca por BYTES para a esquerda:
+          tmp[i] recebe a[i - byte_shift]; fora do range entra 0 */
     for (int i = 0; i < (int)sizeof(BigInt); i++) {
         int src = i - byte_shift;
-        if (src >= 0 && src < (int)sizeof(BigInt)) { // <-- casts para (int)
-            res[i] = a[src];
-        } else {
-            res[i] = 0; // zeros entrando pela direita
-        }
+        tmp[i] = (src >= 0 && src < (int)sizeof(BigInt)) ? a[src] : 0x00;
     }
 
-    // 2) desloca os bits dentro de cada byte, propagando carry para os bytes mais altos
+    /* 2) desloca por BITS dentro dos bytes (LSB -> MSB), propagando carry */
     if (bit_shift != 0) {
         unsigned int carry = 0;
         for (int i = 0; i < (int)sizeof(BigInt); i++) {
-            unsigned int v = ((unsigned int)res[i] << bit_shift) | carry;
-            res[i] = (unsigned char)(v & 0xFF);
-            carry  = v >> 8;  // bits que transbordaram sobem para o próximo byte
+            unsigned int v = ((unsigned int)tmp[i] << bit_shift) | carry;
+            tmp[i] = (unsigned char)(v & 0xFF);
+            carry  = v >> 8;  /* transborda para o próximo byte */
         }
     }
+
+    /* 3) escreve no destino (seguro mesmo se res == a) */
+    memcpy(res, tmp, sizeof(BigInt));
 }
+
 
 /* res = a >> n (lógico) */
 void big_shr (BigInt res, BigInt a, int n) {
-    for (int i = 0; i < (int)sizeof(BigInt); i++) { // <-- cast para (int)
-        res[i] = 0;
-    }
-
+    /* casos triviais */
     if (n <= 0) {
         memcpy(res, a, sizeof(BigInt));
         return;
     }
-
-    if (n >= 8 * (int)sizeof(BigInt)) { // <-- cast para (int)
-        return; // tudo 0
+    if (n >= 8 * (int)sizeof(BigInt)) {
+        /* deslocou >= 128 bits → vira 0 */
+        for (int i = 0; i < (int)sizeof(BigInt); i++) res[i] = 0;
+        return;
     }
 
-    int byte_shift = n / 8;
-    int bit_shift  = n % 8;
+    /* separamos n em deslocamento de bytes e de bits */
+    int byte_shift = n / 8;   /* quantos bytes inteiros mover */
+    int bit_shift  = n % 8;   /* quantos bits dentro do byte */
 
-    // 1) desloca por bytes para a direita: byte i recebe de i+byte_shift
-    for (int i = 0; i < (int)sizeof(BigInt); i++) { // <-- cast para (int)
+    BigInt tmp;
+
+    /* 1) desloca por BYTES para a direita:
+          byte i de tmp vem do byte (i + byte_shift) de a
+          se estourar, entra 0 (lógico) */
+    for (int i = 0; i < (int)sizeof(BigInt); i++) {
         int src = i + byte_shift;
-        if (src < (int)sizeof(BigInt)) {           // <-- cast para (int)
-            res[i] = a[src];
-        } else {
-            res[i] = 0; // zeros entrando pela esquerda
+        tmp[i] = (src < (int)sizeof(BigInt)) ? a[src] : 0x00;
+    }
+
+    /* 2) desloca por BITS dentro dos bytes:
+          varre do topo (MSB) para a base (LSB),
+          carregando para o byte menor os bits que cairam do byte maior */
+    if (bit_shift != 0) {
+        unsigned int carry = 0; /* bits baixos do byte anterior */
+        for (int i = (int)sizeof(BigInt) - 1; i >= 0; i--) {
+            unsigned int v = ((unsigned int)tmp[i] >> bit_shift) | (carry << (8 - bit_shift));
+            carry = tmp[i] & ((1u << bit_shift) - 1u); /* guarda os bits que sobraram */
+            tmp[i] = (unsigned char)(v & 0xFF);
         }
     }
 
-    // 2) desloca por bits, varrendo do topo para a base (MSB → LSB),
-    //    injetando no byte atual os bits baixos do byte anterior (carry)
-    if (bit_shift != 0) {
-        unsigned int carry = 0;
-        for (int i = (int)sizeof(BigInt) - 1; i >= 0; i--) { // <-- cast para (int)
-            unsigned int v = ((unsigned int)res[i] >> bit_shift) | (carry << (8 - bit_shift));
-            carry = res[i] & ((1u << bit_shift) - 1u); // guarda os bits que "caem" pro próximo
-            res[i] = (unsigned char)(v & 0xFF);
-        }
-    }
+    /* 3) copia para o resultado (seguro mesmo se res == a) */
+    memcpy(res, tmp, sizeof(BigInt));
 }
+
 
 /* res = a >> n (aritmético: preserva o sinal) */
 void big_sar (BigInt res, BigInt a, int n) {
+    /* casos triviais */
     if (n <= 0) {
         memcpy(res, a, sizeof(BigInt));
         return;
     }
 
-    if (n >= 8 * (int)sizeof(BigInt)) { // <-- cast para (int)
-        // tudo vira 0xFF..FF se negativo, ou 0x00..00 se não-negativo
-        unsigned char fill = (a[(int)sizeof(BigInt) - 1] & 0x80) ? 0xFF : 0x00; // <-- cast para (int)
-        for (int i = 0; i < (int)sizeof(BigInt); i++) { // <-- cast para (int)
-            res[i] = fill;
-        }
+    /* descobre o bit de sinal original (bit mais significativo do último byte) */
+    unsigned char sign = (a[(int)sizeof(BigInt) - 1] & 0x80) ? 0xFF : 0x00;
+
+    if (n >= 8 * (int)sizeof(BigInt)) {
+        /* deslocou >= 128 bits → tudo vira sinal */
+        for (int i = 0; i < (int)sizeof(BigInt); i++) res[i] = sign;
         return;
     }
 
     int byte_shift = n / 8;
     int bit_shift  = n % 8;
-    unsigned char fill = (a[(int)sizeof(BigInt) - 1] & 0x80) ? 0xFF : 0x00; // bit de sinal original
 
-    // 1) desloca por bytes preenchendo com fill (replicação do sinal)
-    for (int i = 0; i < (int)sizeof(BigInt); i++) { // <-- cast para (int)
+    BigInt tmp;
+
+    /* 1) desloca por BYTES para a direita:
+          byte i de tmp vem de a[i + byte_shift]
+          se estourar, entra 'sign' (replicação do bit de sinal) */
+    for (int i = 0; i < (int)sizeof(BigInt); i++) {
         int src = i + byte_shift;
-        if (src < (int)sizeof(BigInt)) {           // <-- cast para (int)
-            res[i] = a[src];
-        } else {
-            res[i] = fill; // entra sinal à esquerda
+        tmp[i] = (src < (int)sizeof(BigInt)) ? a[src] : sign;
+    }
+
+    /* 2) desloca por BITS dentro dos bytes:
+          varre do MSB para o LSB,
+          com carry inicial "cheio" (111..1) se o número é negativo,
+          para injetar 1s pela esquerda; senão carry = 0 */
+    if (bit_shift != 0) {
+        unsigned int carry = (sign == 0xFF) ? ((1u << bit_shift) - 1u) : 0u;
+        for (int i = (int)sizeof(BigInt) - 1; i >= 0; i--) {
+            unsigned int v = ((unsigned int)tmp[i] >> bit_shift) | (carry << (8 - bit_shift));
+            carry = tmp[i] & ((1u << bit_shift) - 1u);
+            tmp[i] = (unsigned char)(v & 0xFF);
         }
     }
 
-    // 2) desloca por bits com “carry” inicial = 111..1 se negativo, ou 0 se positivo
-    if (bit_shift != 0) {
-        unsigned int carry = (fill == 0xFF) ? ((1u << bit_shift) - 1u) : 0u;
-        for (int i = (int)sizeof(BigInt) - 1; i >= 0; i--) { // <-- cast para (int)
-            unsigned int v = ((unsigned int)res[i] >> bit_shift) | (carry << (8 - bit_shift));
-            carry = res[i] & ((1u << bit_shift) - 1u);
-            res[i] = (unsigned char)(v & 0xFF);
-        }
-    }
+    memcpy(res, tmp, sizeof(BigInt));
 }
 
 /* res = a * b (módulo 2^128) via shift-and-add */

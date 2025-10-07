@@ -1,5 +1,5 @@
   /* Hugo Freires 2321223 3WA */
-  /* Saulo Canto Matricula 3WB */
+  /* Saulo Canto 2320940 3WB */
 
 #include <stdio.h>
 #include <string.h>
@@ -195,6 +195,226 @@ static void test_mul(void) {
 #endif
 }
 
+static void test_shift_matrix(void) {
+    int ns[] = {0,1,2,7,8,15,16,31,32,63,64,127};
+    int NN = (int)(sizeof(ns)/sizeof(ns[0]));
+
+    /* padrões de bits */
+    BigInt PAT_AA, PAT_55, PAT_FF, PAT_00; // 0xAA.., 0x55.., 0xFF.., 0x00..
+    for (int i=0;i<16;i++) {
+        PAT_AA[i]=0xAA; PAT_55[i]=0x55; PAT_FF[i]=0xFF; PAT_00[i]=0x00;
+    }
+
+    /* shifting zero continua zero (lógico e aritmético) */
+    for (int k=0;k<NN;k++) {
+        int n = ns[k];
+        BigInt r;
+        big_shl(r, PAT_00, n); expect_equal("shl(0,n)==0", r, PAT_00);
+        big_shr(r, PAT_00, n); expect_equal("shr(0,n)==0", r, PAT_00);
+        big_sar(r, PAT_00, n); expect_equal("sar(0,n)==0", r, PAT_00);
+    }
+
+    /* sar == shr para números não-negativos */
+    {
+        BigInt pos, r1, r2;
+        from_long(pos, 0x12345678);
+        for (int k=0;k<NN;k++) {
+            int n = ns[k];
+            big_shr(r1, pos, n);
+            big_sar(r2, pos, n);
+            expect_equal("sar == shr (não-negativo)", r1, r2);
+        }
+    }
+
+    /* shr vs sar devem divergir para negativos quando n>0 */
+    {
+        BigInt neg, r1, r2;
+        from_long(neg, -0x1234);
+        for (int k=0;k<NN;k++) {
+            int n = ns[k];
+            big_shr(r1, neg, n);
+            big_sar(r2, neg, n);
+            if (n==0) {
+                expect_equal("shr vs sar n=0 (iguais)", r1, r2);
+            } else {
+                if (memcmp(r1, r2, 16)==0) {
+                    dump_hex("shr neg", r1);
+                    dump_hex("sar neg", r2);
+                    assert(!"shr vs sar deveriam diferir para negativo com n>0");
+                }
+            }
+        }
+    }
+
+    /* padrões chatos (só sanity: não crasha e executa) */
+    {
+        BigInt r;
+        for (int k=0;k<NN;k++) {
+            int n = ns[k];
+            big_shl(r, PAT_AA, n);
+            big_shr(r, PAT_AA, n);
+            big_sar(r, PAT_AA, n);
+
+            big_shl(r, PAT_55, n);
+            big_shr(r, PAT_55, n);
+            big_sar(r, PAT_55, n);
+
+            big_shl(r, PAT_FF, n);
+            big_shr(r, PAT_FF, n);
+            big_sar(r, PAT_FF, n);
+        }
+        printf("OK  : padrões 0xAA/0x55/0xFF shiftados em vários n\n");
+    }
+}
+
+static void test_inplace(void) {
+    /* comp2 in-place: agora a tua função suporta */
+    {
+        BigInt x, exp;
+        from_long(x, 12345);
+        from_long(exp, -12345);
+        big_comp2(x, x); /* in-place */
+        expect_equal("comp2 in-place", x, exp);
+    }
+
+    /* sum in-place: res == a */
+    {
+        BigInt a,b,exp;
+        from_long(a, 100); from_long(b, 23);
+        from_long(exp, 123);
+        big_sum(a, a, b); /* res==a */
+        expect_equal("sum in-place (res==a)", a, exp);
+    }
+
+    /* sub in-place: res == a */
+    {
+        BigInt a,b,exp;
+        from_long(a, 100); from_long(b, 77);
+        from_long(exp, 23);
+        big_sub(a, a, b);
+        expect_equal("sub in-place (res==a)", a, exp);
+    }
+
+    /* shl/shr/sar in-place */
+    {
+        BigInt x, exp;
+        from_long(x, 1);           /* 1 << 12 = 4096 */
+        from_long(exp, 4096);
+        big_shl(x, x, 12);
+        expect_equal("shl in-place", x, exp);
+
+        from_long(x, 0x0100);      /* 0x0100 >> 8 = 0x01 */
+        from_long(exp, 1);
+        big_shr(x, x, 8);
+        expect_equal("shr in-place", x, exp);
+
+        from_long(x, -1024);       /* aritmético preserva sinal */
+        big_sar(x, x, 5);          /* apenas valida que não corrompe / comportamento consistente */
+        printf("OK  : sar in-place executado\n");
+    }
+
+    /* mul in-place (res==a) não é típica, mas vamos validar alguns casos pequenos: */
+    {
+        BigInt a,b,exp;
+        from_long(a, 7); from_long(b, 6); from_long(exp, 42);
+        big_mul(a, a, b);
+        expect_equal("mul in-place (res==a)", a, exp);
+    }
+}
+
+static void test_props(void) {
+    /* a + (-a) == 0 para vários valores de long */
+    {
+        long vals[] = {0,1,-1,7,-7,123456,-99999,0x7FFFFFFF,-0x7FFFFFFF};
+        for (int k=0;k<(int)(sizeof(vals)/sizeof(vals[0]));k++) {
+            BigInt a,na,sum,zero={0};
+            from_long(a, vals[k]);
+            big_comp2(na, a);
+            big_sum(sum, a, na);
+            expect_equal("a + (-a) == 0", sum, zero);
+        }
+    }
+
+    /* comutatividade: a+b == b+a ; a*b == b*a (mód 2^128) */
+    {
+        long X[] = {0,1,-1,2,-2,13,-17,12345,-54321};
+        int NX = (int)(sizeof(X)/sizeof(X[0]));
+        for (int i=0;i<NX;i++) for (int j=0;j<NX;j++) {
+            BigInt a,b,r1,r2;
+
+            from_long(a, X[i]); from_long(b, X[j]);
+            big_sum(r1, a, b);  big_sum(r2, b, a);
+            expect_equal("comutatividade soma", r1, r2);
+
+            big_mul(r1, a, b);  big_mul(r2, b, a);
+            expect_equal("comutatividade mul", r1, r2);
+        }
+    }
+
+    /* associatividade da soma: (a+b)+c == a+(b+c) (mód 2^128) */
+    {
+        long X[] = {0,1,-1,2,-2,1000,-1000};
+        for (int i=0;i<7;i++) for (int j=0;j<7;j++) for (int k=0;k<7;k++) {
+            BigInt a,b,c,t1,t2,s1,s2;
+            from_long(a, X[i]); from_long(b, X[j]); from_long(c, X[k]);
+            big_sum(t1, a, b);      big_sum(s1, t1, c);
+            big_sum(t2, b, c);      big_sum(s2, a, t2);
+            expect_equal("associatividade soma", s1, s2);
+        }
+    }
+
+    /* distributividade: a*(b+c) == a*b + a*c (mód 2^128) */
+    {
+        long A[] = {0,1,-1,7,-7,123,-123};
+        long B[] = {0,2,-2,5,-5,11,-11};
+        for (int i=0;i<7;i++) for (int j=0;j<7;j++) for (int k=0;k<7;k++) {
+            BigInt a,b,c,bc,ab,ac,sum,prod;
+            from_long(a, A[i]); from_long(b, B[j]); from_long(c, B[k]);
+            big_sum(bc, b, c);          /* bc = b+c */
+            big_mul(prod, a, bc);       /* a*(b+c) */
+            big_mul(ab, a, b);          /* a*b */
+            big_mul(ac, a, c);          /* a*c */
+            big_sum(sum, ab, ac);       /* a*b + a*c */
+            expect_equal("distributividade", prod, sum);
+        }
+    }
+
+    /* equivalência: (num não-negativo) shl k == mul por 2^k; shr k == div trunc por 2^k */
+    {
+        long base[] = {0,1,2,3,7,15,16,31,32,63};
+        int KN[] = {0,1,2,7,8,15,16,31,32,63};
+        BigInt twoPowK, rShl, rMul, rShr, a, b;
+
+        for (int bi=0; bi<(int)(sizeof(base)/sizeof(base[0])); bi++) {
+            from_long(a, base[bi]);               /* não-negativo */
+            for (int ki=0; ki<(int)(sizeof(KN)/sizeof(KN[0])); ki++) {
+                int k = KN[ki];
+
+                /* shl */
+                big_shl(rShl, a, k);
+
+                /* multiplica por 2^k — só até k<63 para evitar UB em shift de long */
+                if (k < 63) {
+                    from_long(twoPowK, 1L << k);
+                    big_mul(rMul, a, twoPowK);
+                    expect_equal("shl == mul por 2^k (k<63)", rShl, rMul);
+                }
+
+                /* shr (lógico) == dividir por 2^k (trunc) para não-negativo, k<63 */
+                if (k < 63) {
+                    long divval = base[bi] >> k;
+                    from_long(b, divval);
+                    big_shr(rShr, a, k);
+                    expect_equal("shr == div 2^k (não-negativo)", rShr, b);
+                }
+            }
+        }
+        printf("OK  : equivalências shl/mul e shr/div (não-negativo, k<63)\n");
+    }
+}
+
+
+
 /* ==== MAIN: executa todos os testes ==== */
 int main(void) {
     printf("=== Testes BigInt (TDD) ===\n");
@@ -202,6 +422,9 @@ int main(void) {
     test_big_comp2();
     test_big_sum_sub();
     test_shifts();
+    test_inplace();        
+    test_shift_matrix();   
+    test_props();          
     test_mul();
     printf("=== Todos os testes passaram. ===\n");
     return 0;
